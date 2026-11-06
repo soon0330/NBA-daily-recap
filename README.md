@@ -12,10 +12,10 @@ Each run:
 2. **Fetches the data** (`fetch_games.py`): final scores and quarter scores, the top scorer of every game, and picks up to 4 featured games (closest/overtime game, biggest comeback, biggest scoring nights).
 3. **Writes one script per game** (`write_script.py`) with Gemini, always as 3 parts: top scorer hook, how the game flowed, final score.
 4. **Generates the voiceover** (`narrate.py`) with edge-tts, one audio file per part.
-5. **Draws the cards** (`fetch_visuals.py`): final score, top scorer, quarter-by-quarter table, in the home team's colors.
-6. **Renders the video** (`make_video.py`) with MoviePy. Each card is shown exactly while its part of the script is spoken. Captions follow the voiceover.
+5. **Designs the cards** (`fetch_visuals.py`): final score, top scorer, quarter-by-quarter table, in the home team's colors. They are drawn frame by frame, so numbers count up and the quarter columns appear one at a time.
+6. **Renders the video** (`make_video.py`) with MoviePy. Each animated card is shown exactly while its part of the script is spoken. Captions follow the voiceover and an energetic background track (`make_music.py` synthesizes original tracks; drop your own licensed `.mp3`/`.wav` files into `assets/music/` to use them instead) plays under it.
 7. **Fact-checks the script** (`fact_check.py`): every number in the script must be traceable to the game data, otherwise that video is held back.
-8. **Uploads to YouTube** (`upload_youtube.py`) and sends a **Telegram** summary (`notify.py`). Failures are reported on Telegram too.
+8. **Uploads to YouTube** (`upload_youtube.py`): the first video goes public immediately, the rest are scheduled 90 minutes apart. A **Telegram** summary is sent (`notify.py`), and failures are reported there too.
 
 `main.py` runs all of this in order and stops on the first failure.
 
@@ -77,8 +77,9 @@ common.py          shared helpers: finding the latest report, per-game folders, 
 fetch_games.py     game data, quarter scores, top scorers, featured game selection
 write_script.py    Gemini script generation (3 parts per game)
 narrate.py         edge-tts voiceover per part
-fetch_visuals.py   Pillow cards in team colors
-make_video.py      MoviePy rendering, captions, avatar
+fetch_visuals.py   Pillow card designs in team colors, with count-up and reveal animations
+make_music.py      synthesizes the original background music
+make_video.py      MoviePy rendering, captions, avatar, music mix
 fact_check.py      verifies numbers in each script against the data
 upload_youtube.py  YouTube Data API upload
 notify.py          Telegram notifications

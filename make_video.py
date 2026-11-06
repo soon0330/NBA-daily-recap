@@ -1,4 +1,5 @@
 import math
+import random
 import re
 import sys
 from pathlib import Path
@@ -6,14 +7,27 @@ from pathlib import Path
 import numpy as np
 from moviepy import (
     AudioFileClip,
+    CompositeAudioClip,
     CompositeVideoClip,
     ImageClip,
     TextClip,
+    VideoClip,
+    afx,
     concatenate_audioclips,
 )
 from PIL import Image, ImageChops, ImageDraw
 
 from common import find_latest_report, short_dirs, split_into_segments
+from fetch_visuals import (
+    PLAYER_CARD_ANIMATION_SECONDS,
+    SCORE_CARD_ANIMATION_SECONDS,
+    linescore_animation_seconds,
+    render_linescore_card,
+    render_player_card,
+    render_score_card,
+    score_card_subtitle,
+)
+from make_music import find_tracks
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 FONTS_DIR = Path("C:/Windows/Fonts")
@@ -21,7 +35,8 @@ FONTS_DIR = Path("C:/Windows/Fonts")
 CANVAS_SIZE = (1080, 1920)
 AVATAR_WIDTH = 220
 AVATAR_POSITION = (30, CANVAS_SIZE[1] - 260)
-ZOOM_AMOUNT = 0.05
+MUSIC_VOLUME = 0.2
+MUSIC_FADE_SECONDS = 1.5
 CAPTION_MAX_WORDS = 9
 CAPTION_POSITION = ("center", 1480)
 FPS = 30
@@ -35,12 +50,52 @@ def find_caption_font():
     return None
 
 
-def card_order(cards_dir):
-    score = cards_dir / "1_score.png"
-    performer = cards_dir / "2_performer.png"
-    linescore = cards_dir / "3_linescore.png"
-    hook_card = performer if performer.exists() else score
-    return [hook_card, linescore, score]
+def animated_card(render, duration, animation_seconds):
+    cache = {}
+
+    def make_frame(t):
+        if t >= animation_seconds:
+            if "final" not in cache:
+                cache["final"] = np.array(render(None))
+            return cache["final"]
+        return np.array(render(t))
+
+    return VideoClip(make_frame, duration=duration)
+
+
+def build_card_clips(game, durations):
+    """One animated card per narration part: hook card, quarter-by-quarter, final score."""
+    performer = game.get("top_performer")
+    subtitle = score_card_subtitle(game)
+
+    def score_render(t):
+        return render_score_card(game, subtitle, t)
+
+    if performer:
+        hook = (lambda t: render_player_card(performer, t), PLAYER_CARD_ANIMATION_SECONDS)
+    else:
+        hook = (score_render, SCORE_CARD_ANIMATION_SECONDS)
+
+    line_duration = durations[1] if len(durations) > 1 else durations[0]
+    interval = max(0.45, min(2.0, 0.8 * line_duration / (len(game["periods"]) + 1)))
+    linescore = (lambda t: render_linescore_card(game, t, interval), linescore_animation_seconds(game, interval))
+    final = (score_render, SCORE_CARD_ANIMATION_SECONDS)
+    specs = [hook, linescore, final]
+
+    clips = []
+    start = 0.0
+    for index, duration in enumerate(durations):
+        render, animation_seconds = specs[min(index, len(specs) - 1)]
+        clip = animated_card(render, duration, animation_seconds).with_start(start).with_position("center")
+        clips.append(clip)
+        start += duration
+    return clips
+
+
+def build_music(seed_text, duration):
+    path = random.Random(seed_text).choice(find_tracks())
+    music = AudioFileClip(str(path)).with_effects([afx.AudioLoop(duration=duration)])
+    return music.subclipped(0, duration).with_volume_scaled(MUSIC_VOLUME).with_effects([afx.AudioFadeOut(MUSIC_FADE_SECONDS)])
 
 
 def load_round_avatar(avatar_path):
@@ -99,7 +154,7 @@ def build_caption_clips(text, start, duration, font):
     return clips
 
 
-def make_short(folder, font):
+def make_short(folder, game, font):
     segments = split_into_segments((folder / "script.txt").read_text(encoding="utf-8"))
     audio_paths = sorted(folder.glob("narration_*.mp3"))
     audio_clips = [AudioFileClip(str(p)) for p in audio_paths]
@@ -107,20 +162,7 @@ def make_short(folder, font):
     total_duration = sum(durations)
     print(f"Narration: {len(audio_clips)} segments, {total_duration:.1f}s total")
 
-    cards = card_order(folder / "cards")
-
-    layers = []
-    start = 0.0
-    for index, duration in enumerate(durations):
-        card = (
-            ImageClip(str(cards[min(index, len(cards) - 1)]))
-            .with_duration(duration)
-            .resized(lambda t, d=duration: 1 + ZOOM_AMOUNT * t / d)
-            .with_position("center")
-            .with_start(start)
-        )
-        layers.append(card)
-        start += duration
+    layers = build_card_clips(game, durations)
 
     avatar_clip = build_avatar_clip(ASSETS_DIR / "avatar.png", total_duration)
     if avatar_clip is not None:
@@ -131,7 +173,8 @@ def make_short(folder, font):
         layers.extend(build_caption_clips(text, start, duration, font))
         start += duration
 
-    audio = concatenate_audioclips(audio_clips)
+    voice = concatenate_audioclips(audio_clips)
+    audio = CompositeAudioClip([voice, build_music(folder.name, total_duration)])
     final = CompositeVideoClip(layers, size=CANVAS_SIZE).with_duration(total_duration).with_audio(audio)
 
     output_path = folder / "final_video.mp4"
@@ -158,7 +201,7 @@ def main():
             continue
 
         print(f"\n=== {game['matchup']} ===")
-        output_path = make_short(folder, font)
+        output_path = make_short(folder, game, font)
         print(f"Saved -> {output_path}")
 
 

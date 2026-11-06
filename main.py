@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from common import build_title, find_latest_report, short_dirs
@@ -80,8 +81,12 @@ def summary_message(day_dir, report):
     for game, folder in short_dirs(day_dir, report):
         marker = folder / "uploaded.json"
         if marker.exists():
-            video_id = json.loads(marker.read_text(encoding="utf-8"))["video_id"]
-            published.append(f"- {build_title(game, report['date'])}\n  https://www.youtube.com/watch?v={video_id}")
+            record = json.loads(marker.read_text(encoding="utf-8"))
+            publish_at = record.get("publish_at")
+            when = f"scheduled {datetime.fromisoformat(publish_at).astimezone():%H:%M}" if publish_at else "public now"
+            published.append(
+                f"- {build_title(game, report['date'])} ({when})\n  https://www.youtube.com/watch?v={record['video_id']}"
+            )
         elif (folder / "blocked.json").exists():
             numbers = json.loads((folder / "blocked.json").read_text(encoding="utf-8"))["unverified_numbers"]
             blocked.append(f"- {game['matchup']} (numbers not in data: {numbers})")

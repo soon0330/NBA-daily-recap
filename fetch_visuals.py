@@ -1,4 +1,5 @@
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -73,6 +74,7 @@ def label_color(background, accent):
     return accent if abs(luminance(accent) - luminance(background)) > 70 else TEXT_COLOR
 
 
+@lru_cache(maxsize=None)
 def load_font(size, bold=False):
     candidates = (["arialbd.ttf", "segoeuib.ttf"] if bold else ["arial.ttf", "segoeui.ttf"])
     for name in candidates:
@@ -82,47 +84,75 @@ def load_font(size, bold=False):
     return ImageFont.load_default()
 
 
-def draw_centered_text(draw, text, y, font, fill):
-    bbox = draw.textbbox((0, 0), text, font=font)
-    x = (CARD_SIZE[0] - (bbox[2] - bbox[0])) / 2
-    draw.text((x, y), text, font=font, fill=fill)
+def draw_text(image, text, x, y, font, fill, alpha=1.0):
+    if alpha <= 0:
+        return
+    bbox = font.getbbox(text)
+    tile = Image.new("RGBA", (bbox[2] + 6, bbox[3] + 6), (0, 0, 0, 0))
+    ImageDraw.Draw(tile).text((0, 0), text, font=font, fill=tuple(fill) + (255,))
+    if alpha < 1:
+        tile.putalpha(tile.getchannel("A").point(lambda a: int(a * alpha)))
+    image.paste(tile, (int(x), int(y)), tile)
 
 
-def build_score_card(game, output_path, subtitle=None):
+def draw_centered(image, text, y, font, fill, alpha=1.0):
+    bbox = font.getbbox(text)
+    draw_text(image, text, (CARD_SIZE[0] - (bbox[2] - bbox[0])) / 2, y, font, fill, alpha)
+
+
+def ease_out(x):
+    x = min(max(x, 0.0), 1.0)
+    return 1 - (1 - x) ** 3
+
+
+def progress(t, start, duration):
+    if t is None:
+        return 1.0
+    return min(max((t - start) / duration, 0.0), 1.0)
+
+
+def counted(value, t, start, duration):
+    return round(value * ease_out(progress(t, start, duration)))
+
+
+SCORE_CARD_ANIMATION_SECONDS = 1.9
+PLAYER_CARD_ANIMATION_SECONDS = 1.5
+
+
+def linescore_animation_seconds(game, interval):
+    return 0.2 + interval * len(game["periods"]) + 0.9
+
+
+def render_score_card(game, subtitle=None, t=None):
     bg_color, accent = colors_for_game(game)
     accent_color = label_color(bg_color, accent)
     image = Image.new("RGB", CARD_SIZE, bg_color)
-    draw = ImageDraw.Draw(image)
 
     label_font = load_font(48)
     team_font = load_font(70, bold=True)
     score_font = load_font(160, bold=True)
     subtitle_font = load_font(42)
 
-    draw_centered_text(draw, "FINAL", 260, label_font, accent_color)
-    draw_centered_text(draw, game["away_team"].upper(), 360, team_font, TEXT_COLOR)
-    draw_centered_text(draw, str(game["away_score"]), 460, score_font, TEXT_COLOR)
+    draw_centered(image, "FINAL", 260, label_font, accent_color)
+    draw_centered(image, game["away_team"].upper(), 360, team_font, TEXT_COLOR)
+    draw_centered(image, str(counted(game["away_score"], t, 0.2, 0.8)), 460, score_font, TEXT_COLOR)
 
-    draw_centered_text(draw, "AT", 700, label_font, accent_color)
+    draw_centered(image, "AT", 700, label_font, accent_color)
 
-    draw_centered_text(draw, game["home_team"].upper(), 800, team_font, TEXT_COLOR)
-    draw_centered_text(draw, str(game["home_score"]), 900, score_font, TEXT_COLOR)
+    draw_centered(image, game["home_team"].upper(), 800, team_font, TEXT_COLOR)
+    draw_centered(image, str(counted(game["home_score"], t, 0.5, 0.8)), 900, score_font, TEXT_COLOR)
 
     if game.get("overtime"):
-        draw_centered_text(draw, "OVERTIME", 1150, label_font, accent_color)
-
+        draw_centered(image, "OVERTIME", 1150, label_font, accent_color, progress(t, 1.2, 0.4))
     if subtitle:
-        draw_centered_text(draw, subtitle, 1300, subtitle_font, TEXT_COLOR)
+        draw_centered(image, subtitle, 1300, subtitle_font, TEXT_COLOR, progress(t, 1.4, 0.4))
+    return image
 
-    image.save(output_path)
 
-
-def build_player_card(performer, output_path):
+def render_player_card(performer, t=None):
     bg_color = (20, 16, 10)
     gold = (255, 199, 44)
-
     image = Image.new("RGB", CARD_SIZE, bg_color)
-    draw = ImageDraw.Draw(image)
 
     label_font = load_font(46)
     team_font = load_font(44)
@@ -132,27 +162,24 @@ def build_player_card(performer, output_path):
     name_text = performer["name"].upper()
     name_size = 90
     name_font = load_font(name_size, bold=True)
-    while name_size > 40 and draw.textbbox((0, 0), name_text, font=name_font)[2] > CARD_SIZE[0] - 120:
+    while name_size > 40 and name_font.getbbox(name_text)[2] > CARD_SIZE[0] - 120:
         name_size -= 4
         name_font = load_font(name_size, bold=True)
 
-    draw_centered_text(draw, "TOP SCORER", 300, label_font, gold)
-    draw_centered_text(draw, name_text, 420, name_font, TEXT_COLOR)
-    draw_centered_text(draw, performer.get("team", ""), 540, team_font, gold)
+    draw_centered(image, "TOP SCORER", 300, label_font, gold)
+    draw_centered(image, name_text, 420, name_font, TEXT_COLOR)
+    draw_centered(image, performer.get("team", ""), 540, team_font, gold)
 
     stats = [("PTS", performer["pts"]), ("REB", performer["reb"]), ("AST", performer["ast"])]
     col_width = CARD_SIZE[0] // len(stats)
-    y_number = 850
-    y_label = 1000
     for index, (label, value) in enumerate(stats):
         col_center = col_width * index + col_width // 2
-        number_text = str(value)
-        bbox = draw.textbbox((0, 0), number_text, font=stat_number_font)
-        draw.text((col_center - (bbox[2] - bbox[0]) / 2, y_number), number_text, font=stat_number_font, fill=gold)
-        label_bbox = draw.textbbox((0, 0), label, font=stat_label_font)
-        draw.text((col_center - (label_bbox[2] - label_bbox[0]) / 2, y_label), label, font=stat_label_font, fill=TEXT_COLOR)
-
-    image.save(output_path)
+        number = str(counted(value, t, 0.1 + 0.2 * index, 0.8))
+        number_width = stat_number_font.getbbox(number)[2]
+        draw_text(image, number, col_center - number_width / 2, 850, stat_number_font, gold)
+        label_width = stat_label_font.getbbox(label)[2]
+        draw_text(image, label, col_center - label_width / 2, 1000, stat_label_font, TEXT_COLOR)
+    return image
 
 
 def score_card_subtitle(game):
@@ -163,7 +190,7 @@ def score_card_subtitle(game):
     return None
 
 
-def build_linescore_card(game, output_path):
+def render_linescore_card(game, t=None, interval=0.45):
     bg_color, accent_color = colors_for_game(game)
     image = Image.new("RGB", CARD_SIZE, bg_color)
     draw = ImageDraw.Draw(image)
@@ -174,7 +201,7 @@ def build_linescore_card(game, output_path):
     number_font = load_font(52)
     total_font = load_font(64, bold=True)
 
-    draw_centered_text(draw, "QUARTER BY QUARTER", 420, title_font, TEXT_COLOR)
+    draw_centered(image, "QUARTER BY QUARTER", 420, title_font, TEXT_COLOR)
 
     periods = game["periods"] + ["T"]
     name_width = 300
@@ -183,10 +210,18 @@ def build_linescore_card(game, output_path):
     table_top = 640
     row_height = 130
 
+    def column_center(index):
+        return margin + name_width + column_width * index + column_width // 2
+
+    def column_state(index):
+        start = 0.2 + interval * index
+        shown = progress(t, start, 0.3)
+        return start, shown, (1 - ease_out(shown)) * 24
+
     for index, label in enumerate(periods):
-        x = margin + name_width + column_width * index + column_width // 2
-        bbox = draw.textbbox((0, 0), label, font=header_font)
-        draw.text((x - (bbox[2] - bbox[0]) / 2, table_top), label, font=header_font, fill=(200, 205, 215))
+        _, shown, slide = column_state(index)
+        draw_text(image, label, column_center(index) - header_font.getbbox(label)[2] / 2, table_top + slide,
+                  header_font, (200, 205, 215), shown)
 
     rows = [
         (game["away_team"], game["away_quarters"], game["away_score"]),
@@ -202,15 +237,26 @@ def build_linescore_card(game, output_path):
                 fill=accent_color,
             )
         row_color = readable_text_color(accent_color) if is_winner else TEXT_COLOR
-        draw.text((margin, y + 8), team.split()[-1].upper(), font=name_font, fill=row_color)
+        draw_text(image, team.split()[-1].upper(), margin, y + 8, name_font, row_color)
         for index, value in enumerate(quarters + [total]):
-            x = margin + name_width + column_width * index + column_width // 2
-            font = total_font if index == len(quarters) else number_font
-            text = str(value)
-            bbox = draw.textbbox((0, 0), text, font=font)
-            draw.text((x - (bbox[2] - bbox[0]) / 2, y), text, font=font, fill=row_color)
+            start, shown, slide = column_state(index)
+            is_total = index == len(quarters)
+            font = total_font if is_total else number_font
+            text = str(counted(total, t, start, 0.8)) if is_total else str(value)
+            draw_text(image, text, column_center(index) - font.getbbox(text)[2] / 2, y + slide, font, row_color, shown)
+    return image
 
-    image.save(output_path)
+
+def build_score_card(game, output_path, subtitle=None):
+    render_score_card(game, subtitle).save(output_path)
+
+
+def build_player_card(performer, output_path):
+    render_player_card(performer).save(output_path)
+
+
+def build_linescore_card(game, output_path):
+    render_linescore_card(game).save(output_path)
 
 
 def ensure_avatar_placeholder():

@@ -1,5 +1,6 @@
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from google.auth.transport.requests import Request
@@ -17,6 +18,7 @@ TOKEN_FILE = BASE_DIR / "token.json"
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 SPORTS_CATEGORY_ID = "17"
 PRIVACY_STATUS = "public"
+PUBLISH_SPACING_MINUTES = 90
 
 
 def get_authenticated_service():
@@ -38,7 +40,13 @@ def get_authenticated_service():
     return build("youtube", "v3", credentials=creds)
 
 
-def upload_video(youtube, video_path, game, date_str):
+def upload_video(youtube, video_path, game, date_str, publish_at=None):
+    """Uploads public right away, or private with a scheduled publish time when publish_at is given."""
+    status_body = {"privacyStatus": PRIVACY_STATUS, "selfDeclaredMadeForKids": False}
+    if publish_at is not None:
+        status_body["privacyStatus"] = "private"
+        status_body["publishAt"] = publish_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+
     body = {
         "snippet": {
             "title": build_title(game, date_str),
@@ -46,10 +54,7 @@ def upload_video(youtube, video_path, game, date_str):
             "tags": build_tags(game),
             "categoryId": SPORTS_CATEGORY_ID,
         },
-        "status": {
-            "privacyStatus": PRIVACY_STATUS,
-            "selfDeclaredMadeForKids": False,
-        },
+        "status": status_body,
     }
     media = MediaFileUpload(str(video_path), chunksize=-1, resumable=True, mimetype="video/mp4")
     request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
@@ -85,6 +90,7 @@ def main():
 
     youtube = get_authenticated_service()
 
+    release_slot = 0
     for game, folder, video_path in pending:
         problems = check_script(game, (folder / "script.txt").read_text(encoding="utf-8"))
         blocked_marker = folder / "blocked.json"
@@ -94,11 +100,18 @@ def main():
             continue
         blocked_marker.unlink(missing_ok=True)
 
+        publish_at = None
+        if release_slot > 0:
+            publish_at = datetime.now(timezone.utc) + timedelta(minutes=PUBLISH_SPACING_MINUTES * release_slot)
+        release_slot += 1
+
         print(f"\nUploading {game['matchup']}...")
-        response = upload_video(youtube, video_path, game, report["date"])
+        response = upload_video(youtube, video_path, game, report["date"], publish_at)
         video_id = response["id"]
-        (folder / "uploaded.json").write_text(json.dumps({"video_id": video_id}), encoding="utf-8")
-        print(f"Uploaded as {PRIVACY_STATUS}: https://www.youtube.com/watch?v={video_id}")
+        record = {"video_id": video_id, "publish_at": publish_at.isoformat() if publish_at else None}
+        (folder / "uploaded.json").write_text(json.dumps(record), encoding="utf-8")
+        when = f"scheduled for {publish_at.astimezone():%H:%M}" if publish_at else "public now"
+        print(f"Uploaded ({when}): https://www.youtube.com/watch?v={video_id}")
 
     print("\nAll videos uploaded.")
 
