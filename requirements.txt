@@ -1,0 +1,10 @@
+requests
+python-dotenv
+nba_api
+google-genai
+edge-tts
+moviepy
+pillow
+google-api-python-client
+google-auth-oauthlib
+tzdata
