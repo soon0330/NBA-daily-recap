@@ -18,7 +18,7 @@ TOKEN_FILE = BASE_DIR / "token.json"
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 SPORTS_CATEGORY_ID = "17"
 PRIVACY_STATUS = "public"
-PUBLISH_SPACING_MINUTES = 90
+PUBLISH_SPACING_MINUTES = 0
 
 
 def get_authenticated_service():
@@ -101,7 +101,7 @@ def main():
         blocked_marker.unlink(missing_ok=True)
 
         publish_at = None
-        if release_slot > 0:
+        if PUBLISH_SPACING_MINUTES > 0 and release_slot > 0:
             publish_at = datetime.now(timezone.utc) + timedelta(minutes=PUBLISH_SPACING_MINUTES * release_slot)
         release_slot += 1
 

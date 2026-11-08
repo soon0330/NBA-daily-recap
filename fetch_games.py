@@ -16,6 +16,7 @@ OUTPUT_DIR = Path(__file__).parent / "output"
 MAX_LOOKBACK_DAYS = 7
 NOT_READY_EXIT_CODE = 3
 API_PAUSE_SECONDS = 13
+RATE_LIMIT_RETRIES = 4
 MAX_FEATURED_GAMES = 4
 QUARTERS = ["q1", "q2", "q3", "q4"]
 
@@ -54,14 +55,19 @@ ABBREVIATION_TO_FULL_NAME = {
 
 
 def get_games(date_str, api_key):
-    response = requests.get(
-        f"{API_BASE}/games",
-        params={"dates[]": [date_str]},
-        headers={"Authorization": api_key},
-        timeout=15,
-    )
-    response.raise_for_status()
-    return response.json()["data"]
+    for attempt in range(1, RATE_LIMIT_RETRIES + 1):
+        response = requests.get(
+            f"{API_BASE}/games",
+            params={"dates[]": [date_str]},
+            headers={"Authorization": api_key},
+            timeout=15,
+        )
+        if response.status_code == 429 and attempt < RATE_LIMIT_RETRIES:
+            print(f"Rate limited by balldontlie, waiting {API_PAUSE_SECONDS}s (attempt {attempt}/{RATE_LIMIT_RETRIES})...")
+            time.sleep(API_PAUSE_SECONDS)
+            continue
+        response.raise_for_status()
+        return response.json()["data"]
 
 
 def find_latest_complete_day(api_key):
@@ -74,7 +80,7 @@ def find_latest_complete_day(api_key):
         states = {g.get("status_state") for g in games}
         if games and states == {"final"}:
             return date_str, games
-        if games and states != {"scheduled"} and days_back == 0:
+        if games and states != {"scheduled"} and days_back <= 1:
             return date_str, None
         if days_back >= 3:
             time.sleep(API_PAUSE_SECONDS)
