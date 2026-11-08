@@ -70,6 +70,14 @@ def get_games(date_str, api_key):
         return response.json()["data"]
 
 
+def load_specific_day(api_key, date_str):
+    """Returns (date, games) for a chosen US game day, or (date, None) if it is not finished."""
+    games = [g for g in get_games(date_str, api_key) if not g.get("postponed")]
+    if games and {g.get("status_state") for g in games} == {"final"}:
+        return date_str, games
+    return date_str, None
+
+
 def find_latest_complete_day(api_key):
     """Returns (date, games) for the newest US game day whose games are all final.
     Returns (date, None) when today's US game day is still in progress."""
@@ -259,7 +267,11 @@ def main():
         print("Missing BALLDONTLIE_API_KEY. Set it in the .env file and try again.")
         sys.exit(1)
 
-    date_str, games = find_latest_complete_day(api_key)
+    requested_date = os.getenv("NBA_DATE")
+    if requested_date:
+        date_str, games = load_specific_day(api_key, requested_date)
+    else:
+        date_str, games = find_latest_complete_day(api_key)
     if games is None:
         print(f"Games for {date_str} (US date) are still in progress. Try again later.")
         sys.exit(NOT_READY_EXIT_CODE)

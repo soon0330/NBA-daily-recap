@@ -1,5 +1,6 @@
 import json
 import math
+import os
 import re
 from pathlib import Path
 
@@ -8,7 +9,11 @@ TITLE_MAX_LENGTH = 100
 
 
 def find_latest_report():
+    """Returns the newest game-day report, or the one named by NBA_DATE (YYYY-MM-DD) when that is set."""
+    target_date = os.getenv("NBA_DATE")
     day_dirs = sorted((p for p in OUTPUT_DIR.glob("*") if p.is_dir()), reverse=True)
+    if target_date:
+        day_dirs = [p for p in day_dirs if p.name == target_date]
     for day_dir in day_dirs:
         report_path = day_dir / "games.json"
         if report_path.exists():

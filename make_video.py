@@ -178,7 +178,15 @@ def make_short(folder, game, font):
     final = CompositeVideoClip(layers, size=CANVAS_SIZE).with_duration(total_duration).with_audio(audio)
 
     output_path = folder / "final_video.mp4"
-    final.write_videofile(str(output_path), fps=FPS, codec="libx264", audio_codec="aac", preset="ultrafast", threads=4)
+    final.write_videofile(
+        str(output_path),
+        fps=FPS,
+        codec="libx264",
+        audio_codec="aac",
+        preset="ultrafast",
+        threads=4,
+        temp_audiofile=str(folder / "temp_audio.m4a"),
+    )
     final.close()
     for clip in audio_clips:
         clip.close()

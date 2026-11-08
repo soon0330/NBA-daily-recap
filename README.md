@@ -15,7 +15,7 @@ Each run:
 5. **Designs the cards** (`fetch_visuals.py`): final score, top scorer, quarter-by-quarter table, in the home team's colors. They are drawn frame by frame, so numbers count up and the quarter columns appear one at a time.
 6. **Renders the video** (`make_video.py`) with MoviePy. Each animated card is shown exactly while its part of the script is spoken. Captions follow the voiceover and an energetic background track (`make_music.py` synthesizes original tracks; drop your own licensed `.mp3`/`.wav` files into `assets/music/` to use them instead) plays under it.
 7. **Fact-checks the script** (`fact_check.py`): every number in the script must be traceable to the game data, otherwise that video is held back.
-8. **Uploads to YouTube** (`upload_youtube.py`): the first video goes public immediately, the rest are scheduled 90 minutes apart. A **Telegram** summary is sent (`notify.py`), and failures are reported there too.
+8. **Uploads to YouTube** (`upload_youtube.py`): all videos go public at once. Set `PUBLISH_SPACING_MINUTES` to a positive number to schedule them apart instead. A **Telegram** summary is sent (`notify.py`), and failures are reported there too.
 
 `main.py` runs all of this in order and stops on the first failure.
 
@@ -61,13 +61,14 @@ Optional: put your own picture at `assets/avatar.png`. It is cropped to a circle
 ```bash
 python main.py              # whole pipeline, uploads publicly
 python main.py --no-upload  # make the videos but do not upload
+python main.py --date 2026-11-06  # process one specific finished US game day (e.g. to backfill a missed day)
 ```
 
 Each step can also be run on its own (`python fetch_games.py`, `python write_script.py`, ...). Output goes to `output/<US game date>/shorts/<NN_game>/`, and `output/pipeline.log` keeps the run history.
 
 ## Run it every day
 
-Create a Windows Task Scheduler task that runs `.venv\Scripts\python.exe main.py` in the project folder, starting around 12:00 Malaysia time (UTC+8) and repeating every 30 minutes for 4 hours, with "wake the computer to run this task" on and "do not start a new instance" for overlapping runs. Every run is a cheap check until the day's games are all final, then it does the full pipeline once and skips the day afterwards. Adjust the times for your own time zone: NBA games finish roughly 13:00-14:00 UTC+8.
+Create a Windows Task Scheduler task that runs `.venv\Scripts\python.exe main.py` in the project folder, at 15:30 Malaysia time (UTC+8) and repeating every 30 minutes for 30 minutes (15:30 and 16:00), with "wake the computer to run this task" on and "do not start a new instance" for overlapping runs. Every run is a cheap check until the day's games are all final, then it does the full pipeline once and skips the day afterwards. Adjust the times for your own time zone: NBA games finish roughly 13:00-14:00 UTC+8. The computer must be awake (or allowed to wake from sleep via "Allow wake timers" in the power plan) at that time, otherwise the day is skipped.
 
 ## Project layout
 

@@ -106,7 +106,10 @@ def summary_message(day_dir, report):
 def main():
     parser = argparse.ArgumentParser(description="Run the full NBA Shorts pipeline.")
     parser.add_argument("--no-upload", action="store_true", help="stop after rendering the videos")
+    parser.add_argument("--date", help="process one specific US game day (YYYY-MM-DD) instead of the latest")
     args = parser.parse_args()
+    if args.date:
+        os.environ["NBA_DATE"] = args.date
 
     setup_logging()
     logging.info("Pipeline started")
