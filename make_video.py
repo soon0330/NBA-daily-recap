@@ -19,15 +19,14 @@ from PIL import Image, ImageChops, ImageDraw
 
 from common import find_latest_report, short_dirs, split_into_segments
 from fetch_visuals import (
-    PLAYER_CARD_ANIMATION_SECONDS,
     SCORE_CARD_ANIMATION_SECONDS,
     linescore_animation_seconds,
     render_linescore_card,
-    render_player_card,
     render_score_card,
     score_card_subtitle,
 )
 from make_music import find_tracks
+from scene import render_scoring_scene
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 FONTS_DIR = Path("C:/Windows/Fonts")
@@ -72,7 +71,7 @@ def build_card_clips(game, durations):
         return render_score_card(game, subtitle, t)
 
     if performer:
-        hook = (lambda t: render_player_card(performer, t), PLAYER_CARD_ANIMATION_SECONDS)
+        hook = (lambda t: render_scoring_scene(performer, t), math.inf)
     else:
         hook = (score_render, SCORE_CARD_ANIMATION_SECONDS)
 

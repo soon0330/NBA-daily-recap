@@ -1,8 +1,10 @@
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -21,15 +23,27 @@ PRIVACY_STATUS = "public"
 PUBLISH_SPACING_MINUTES = 0
 
 
-def get_authenticated_service():
+def get_authenticated_service(force_login=False):
     creds = None
-    if TOKEN_FILE.exists():
+    if TOKEN_FILE.exists() and not force_login:
         creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
 
     if not creds or not creds.valid:
+        refreshed = False
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+                refreshed = True
+            except RefreshError:
+                if os.getenv("NBA_UNATTENDED"):
+                    print(
+                        "YouTube authorization has expired or was revoked. "
+                        "Open a terminal in the project folder and run 'python upload_youtube.py' to sign in again."
+                    )
+                    sys.exit(1)
+                print("YouTube authorization expired. Opening the browser to sign in again...")
+
+        if not refreshed:
             if not CLIENT_SECRETS_FILE.exists():
                 print(f"Missing {CLIENT_SECRETS_FILE.name}. Set up OAuth credentials first.")
                 sys.exit(1)
@@ -68,6 +82,11 @@ def upload_video(youtube, video_path, game, date_str, publish_at=None):
 
 
 def main():
+    if "--auth" in sys.argv:
+        get_authenticated_service(force_login=True)
+        print("Signed in. The new authorization was saved to token.json.")
+        return
+
     day_dir, report = find_latest_report()
     if report is None:
         print("No games.json report found. Run fetch_games.py first.")

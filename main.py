@@ -42,7 +42,7 @@ def run_step(label, script):
     result = subprocess.run(
         [sys.executable, "-W", "ignore::DeprecationWarning", str(BASE_DIR / script)],
         cwd=BASE_DIR,
-        env={**os.environ, "PYTHONUTF8": "1"},
+        env={**os.environ, "PYTHONUTF8": "1", "NBA_UNATTENDED": "1"},
         stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",

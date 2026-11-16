@@ -11,6 +11,7 @@ MIN_CHECKED_NUMBER = 5
 
 def extract_numbers(text):
     """Returns every number in the text, whether written as digits or spelled out in words."""
+    text = re.sub(r"\b76ers\b", "Sixers", text, flags=re.IGNORECASE)
     numbers = [int(n) for n in re.findall(r"\d+", text)]
 
     current, found = 0, False
